@@ -74,6 +74,7 @@ func main() {
 	app := fiber.New()
 	middleware.SetMiddleware(app) //setup middleware
 
+	defer app.Shutdown()
 
 
 	// create a new handler
