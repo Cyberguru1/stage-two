@@ -24,7 +24,36 @@ func (r registerReq) validate() ([]byte, error) {
 		validation.Field(&r.Lastname, validation.Required, validation.Length(3, 30)),
 		validation.Field(&r.Email, validation.Required, is.Email),
 		validation.Field(&r.Password, validation.Required, validation.Length(8, 30)),
-		validation.Field(&r.Phone, validation.Length(0, 30)),
+	)
+
+	if err == nil {
+		return nil, nil
+	}
+
+	var FieldErrs []FieldErr
+
+	if ve, ok := err.(validation.Errors); ok {
+		for field, err := range ve {
+			FieldErrs = append(FieldErrs, FieldErr{
+				Field:   field,
+				Message: err.Error(),
+			})
+		}
+	}
+
+	// marshal the map to JSON
+	erroJSON, JsonErr := json.Marshal(FieldErrs)
+	if JsonErr != nil {
+		return nil, JsonErr
+	}
+
+	return erroJSON, nil
+}
+
+func (r loginReq) validate() ([]byte, error) {
+	err := validation.ValidateStruct(&r,
+		validation.Field(&r.Email, validation.Required, is.Email),
+		validation.Field(&r.Password, validation.Required, validation.Length(8, 30)),
 	)
 
 	if err == nil {
@@ -87,17 +116,19 @@ func (h *Handlers) UserRegister(ctx *fiber.Ctx) error {
 		return nil
 	}
 
-	if _, err := h.Client.User.Create().
+	userCreated, err := h.Client.User.Create().
 		SetEmail(request.Email).
 		SetFirstName(request.Firstname).
 		SetLastName(request.Lastname).
 		SetPassword(hashpassword).
 		SetPhone(request.Phone).
-		Save(ctx.Context()); err != nil {
-		ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
+		Save(ctx.Context())
+
+	if err != nil {
+		ctx.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{
 			"status":     "Bad request",
 			"message":    "Registration unsuccessful",
-			"statusCode": 400,
+			"statusCode": 422,
 		})
 		utils.Errorf("Fail to create user: ", err)
 		return nil
@@ -114,12 +145,12 @@ func (h *Handlers) UserRegister(ctx *fiber.Ctx) error {
 			"message":    "Registration unsuccessful",
 			"statusCode": 400,
 		})
-		utils.Errorf("Fail to create user: ", err)
+		utils.Errorf("Fail to create default org: ", err)
 		return nil
 	}
 
 	// Associate the user with the organisation
-	if _, err = h.Client.User.
+	if _, err = userCreated.
 		Update().
 		AddOrganisations(organisation).
 		Save(ctx.Context()); err != nil {
@@ -128,7 +159,7 @@ func (h *Handlers) UserRegister(ctx *fiber.Ctx) error {
 			"message":    "Registration unsuccessful",
 			"statusCode": 400,
 		})
-		utils.Errorf("Fail to create user: ", err)
+		utils.Errorf("Fail to associate user with org: ", err)
 		return nil
 	}
 
@@ -174,6 +205,7 @@ func (h *Handlers) UserRegister(ctx *fiber.Ctx) error {
 }
 
 func (h *Handlers) UserLogin(ctx *fiber.Ctx) error {
+
 	var request loginReq
 
 	err := ctx.BodyParser(&request)
@@ -188,6 +220,14 @@ func (h *Handlers) UserLogin(ctx *fiber.Ctx) error {
 		if err != nil {
 			ctx.Status(http.StatusInternalServerError)
 		}
+		return nil
+	}
+
+	// validate users input and return json in expected format
+	if errRes, err := request.validate(); errRes != nil || err != nil {
+		ctx.Status(http.StatusUnprocessableEntity).JSON(fiber.Map{
+			"errors": json.RawMessage(errRes),
+		})
 		return nil
 	}
 

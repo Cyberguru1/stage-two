@@ -14,24 +14,43 @@ func (h *Handlers) GetUser(ctx *fiber.Ctx) error {
 
 	userId, err := middleware.GetUserIdFromContext(ctx)
 
-	if err != nil || passedId != userId {
-		_ = ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"status":     "Bad Request",
-			"message":    "Client error",
-			"statusCode": 400,
-		})
-		return nil
-	}
-
 	uid, _ := uuid.Parse(userId)
+	pid, _ := uuid.Parse(passedId)
 
 	u, err := h.Client.User.Query().Where(user.Userid(uid)).Only(ctx.Context())
+
+	if err != nil || passedId != userId {
+
+		orgs, err := u.QueryOrganisations().
+			All(ctx.Context())
+
+		isMember := false
+		for _, org := range orgs {
+			exists, _ := org.QueryUsers().Where(user.Userid(pid)).Only(ctx.Context())
+			if exists != nil {
+				isMember = true
+				break
+			}
+		}
+		if err != nil || isMember == false {
+			_ = ctx.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+				"status":     "Bad Request",
+				"message":    "Client error",
+				"statusCode": 401,
+			})
+
+			return nil
+		}
+		u, _ = h.Client.User.Query().Where(user.Userid(pid)).Only(ctx.Context())
+	}
+
+	// u, err := h.Client.User.Query().Where(user.Userid(uid)).Only(ctx.Context())
 
 	if err != nil {
 		_ = ctx.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"status":     "Bad Request",
 			"message":    "Client error",
-			"statusCode": 400,
+			"statusCode": 404,
 		})
 
 		return nil

@@ -9,7 +9,6 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/cyberguru1/stage-two/ent/organisation"
-	"github.com/cyberguru1/stage-two/ent/user"
 	"github.com/google/uuid"
 )
 
@@ -26,27 +25,24 @@ type Organisation struct {
 	Description string `json:"description,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the OrganisationQuery when eager-loading is set.
-	Edges              OrganisationEdges `json:"edges"`
-	user_organisations *int
-	selectValues       sql.SelectValues
+	Edges        OrganisationEdges `json:"edges"`
+	selectValues sql.SelectValues
 }
 
 // OrganisationEdges holds the relations/edges for other nodes in the graph.
 type OrganisationEdges struct {
 	// Users holds the value of the users edge.
-	Users *User `json:"users,omitempty"`
+	Users []*User `json:"users,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
 	loadedTypes [1]bool
 }
 
 // UsersOrErr returns the Users value or an error if the edge
-// was not loaded in eager-loading, or loaded but was not found.
-func (e OrganisationEdges) UsersOrErr() (*User, error) {
-	if e.Users != nil {
+// was not loaded in eager-loading.
+func (e OrganisationEdges) UsersOrErr() ([]*User, error) {
+	if e.loadedTypes[0] {
 		return e.Users, nil
-	} else if e.loadedTypes[0] {
-		return nil, &NotFoundError{label: user.Label}
 	}
 	return nil, &NotLoadedError{edge: "users"}
 }
@@ -62,8 +58,6 @@ func (*Organisation) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullString)
 		case organisation.FieldOrgid:
 			values[i] = new(uuid.UUID)
-		case organisation.ForeignKeys[0]: // user_organisations
-			values[i] = new(sql.NullInt64)
 		default:
 			values[i] = new(sql.UnknownType)
 		}
@@ -102,13 +96,6 @@ func (o *Organisation) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field description", values[i])
 			} else if value.Valid {
 				o.Description = value.String
-			}
-		case organisation.ForeignKeys[0]:
-			if value, ok := values[i].(*sql.NullInt64); !ok {
-				return fmt.Errorf("unexpected type %T for edge-field user_organisations", value)
-			} else if value.Valid {
-				o.user_organisations = new(int)
-				*o.user_organisations = int(value.Int64)
 			}
 		default:
 			o.selectValues.Set(columns[i], values[i])

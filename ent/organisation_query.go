@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"database/sql/driver"
 	"fmt"
 	"math"
 
@@ -23,7 +24,6 @@ type OrganisationQuery struct {
 	inters     []Interceptor
 	predicates []predicate.Organisation
 	withUsers  *UserQuery
-	withFKs    bool
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -74,7 +74,7 @@ func (oq *OrganisationQuery) QueryUsers() *UserQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(organisation.Table, organisation.FieldID, selector),
 			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, organisation.UsersTable, organisation.UsersColumn),
+			sqlgraph.Edge(sqlgraph.M2M, false, organisation.UsersTable, organisation.UsersPrimaryKey...),
 		)
 		fromU = sqlgraph.SetNeighbors(oq.driver.Dialect(), step)
 		return fromU, nil
@@ -369,18 +369,11 @@ func (oq *OrganisationQuery) prepareQuery(ctx context.Context) error {
 func (oq *OrganisationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*Organisation, error) {
 	var (
 		nodes       = []*Organisation{}
-		withFKs     = oq.withFKs
 		_spec       = oq.querySpec()
 		loadedTypes = [1]bool{
 			oq.withUsers != nil,
 		}
 	)
-	if oq.withUsers != nil {
-		withFKs = true
-	}
-	if withFKs {
-		_spec.Node.Columns = append(_spec.Node.Columns, organisation.ForeignKeys...)
-	}
 	_spec.ScanValues = func(columns []string) ([]any, error) {
 		return (*Organisation).scanValues(nil, columns)
 	}
@@ -400,8 +393,9 @@ func (oq *OrganisationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 		return nodes, nil
 	}
 	if query := oq.withUsers; query != nil {
-		if err := oq.loadUsers(ctx, query, nodes, nil,
-			func(n *Organisation, e *User) { n.Edges.Users = e }); err != nil {
+		if err := oq.loadUsers(ctx, query, nodes,
+			func(n *Organisation) { n.Edges.Users = []*User{} },
+			func(n *Organisation, e *User) { n.Edges.Users = append(n.Edges.Users, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -409,33 +403,62 @@ func (oq *OrganisationQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]
 }
 
 func (oq *OrganisationQuery) loadUsers(ctx context.Context, query *UserQuery, nodes []*Organisation, init func(*Organisation), assign func(*Organisation, *User)) error {
-	ids := make([]int, 0, len(nodes))
-	nodeids := make(map[int][]*Organisation)
-	for i := range nodes {
-		if nodes[i].user_organisations == nil {
-			continue
+	edgeIDs := make([]driver.Value, len(nodes))
+	byID := make(map[int]*Organisation)
+	nids := make(map[int]map[*Organisation]struct{})
+	for i, node := range nodes {
+		edgeIDs[i] = node.ID
+		byID[node.ID] = node
+		if init != nil {
+			init(node)
 		}
-		fk := *nodes[i].user_organisations
-		if _, ok := nodeids[fk]; !ok {
-			ids = append(ids, fk)
-		}
-		nodeids[fk] = append(nodeids[fk], nodes[i])
 	}
-	if len(ids) == 0 {
-		return nil
+	query.Where(func(s *sql.Selector) {
+		joinT := sql.Table(organisation.UsersTable)
+		s.Join(joinT).On(s.C(user.FieldID), joinT.C(organisation.UsersPrimaryKey[1]))
+		s.Where(sql.InValues(joinT.C(organisation.UsersPrimaryKey[0]), edgeIDs...))
+		columns := s.SelectedColumns()
+		s.Select(joinT.C(organisation.UsersPrimaryKey[0]))
+		s.AppendSelect(columns...)
+		s.SetDistinct(false)
+	})
+	if err := query.prepareQuery(ctx); err != nil {
+		return err
 	}
-	query.Where(user.IDIn(ids...))
-	neighbors, err := query.All(ctx)
+	qr := QuerierFunc(func(ctx context.Context, q Query) (Value, error) {
+		return query.sqlAll(ctx, func(_ context.Context, spec *sqlgraph.QuerySpec) {
+			assign := spec.Assign
+			values := spec.ScanValues
+			spec.ScanValues = func(columns []string) ([]any, error) {
+				values, err := values(columns[1:])
+				if err != nil {
+					return nil, err
+				}
+				return append([]any{new(sql.NullInt64)}, values...), nil
+			}
+			spec.Assign = func(columns []string, values []any) error {
+				outValue := int(values[0].(*sql.NullInt64).Int64)
+				inValue := int(values[1].(*sql.NullInt64).Int64)
+				if nids[inValue] == nil {
+					nids[inValue] = map[*Organisation]struct{}{byID[outValue]: {}}
+					return assign(columns[1:], values[1:])
+				}
+				nids[inValue][byID[outValue]] = struct{}{}
+				return nil
+			}
+		})
+	})
+	neighbors, err := withInterceptors[[]*User](ctx, query, qr, query.inters)
 	if err != nil {
 		return err
 	}
 	for _, n := range neighbors {
-		nodes, ok := nodeids[n.ID]
+		nodes, ok := nids[n.ID]
 		if !ok {
-			return fmt.Errorf(`unexpected foreign-key "user_organisations" returned %v`, n.ID)
+			return fmt.Errorf(`unexpected "users" node returned %v`, n.ID)
 		}
-		for i := range nodes {
-			assign(nodes[i], n)
+		for kn := range nodes {
+			assign(kn, n)
 		}
 	}
 	return nil

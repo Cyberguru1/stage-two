@@ -13,9 +13,15 @@ type orgRegisterReq struct {
 	Description string `json:"description"`
 }
 
+type orgReq struct {
+	Name string `json:"name"`
+	OrgId string `json:"orgId"`
+	Description string `json:"description"`
+}
+
 
 type orgAddUserReq struct {
-	UserId string `json:"userid"`
+	UserId string `json:"userId"`
 }
 
 type loginReq struct {

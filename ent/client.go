@@ -323,7 +323,7 @@ func (c *OrganisationClient) QueryUsers(o *Organisation) *UserQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(organisation.Table, organisation.FieldID, id),
 			sqlgraph.To(user.Table, user.FieldID),
-			sqlgraph.Edge(sqlgraph.M2O, true, organisation.UsersTable, organisation.UsersColumn),
+			sqlgraph.Edge(sqlgraph.M2M, false, organisation.UsersTable, organisation.UsersPrimaryKey...),
 		)
 		fromV = sqlgraph.Neighbors(o.driver.Dialect(), step)
 		return fromV, nil
@@ -472,7 +472,7 @@ func (c *UserClient) QueryOrganisations(u *User) *OrganisationQuery {
 		step := sqlgraph.NewStep(
 			sqlgraph.From(user.Table, user.FieldID, id),
 			sqlgraph.To(organisation.Table, organisation.FieldID),
-			sqlgraph.Edge(sqlgraph.O2M, false, user.OrganisationsTable, user.OrganisationsColumn),
+			sqlgraph.Edge(sqlgraph.M2M, true, user.OrganisationsTable, user.OrganisationsPrimaryKey...),
 		)
 		fromV = sqlgraph.Neighbors(u.driver.Dialect(), step)
 		return fromV, nil

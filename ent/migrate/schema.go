@@ -12,23 +12,14 @@ var (
 	OrganisationsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "orgid", Type: field.TypeUUID, Unique: true},
-		{Name: "name", Type: field.TypeString},
+		{Name: "name", Type: field.TypeString, Unique: true},
 		{Name: "description", Type: field.TypeString, Nullable: true},
-		{Name: "user_organisations", Type: field.TypeInt, Nullable: true},
 	}
 	// OrganisationsTable holds the schema information for the "organisations" table.
 	OrganisationsTable = &schema.Table{
 		Name:       "organisations",
 		Columns:    OrganisationsColumns,
 		PrimaryKey: []*schema.Column{OrganisationsColumns[0]},
-		ForeignKeys: []*schema.ForeignKey{
-			{
-				Symbol:     "organisations_users_organisations",
-				Columns:    []*schema.Column{OrganisationsColumns[4]},
-				RefColumns: []*schema.Column{UsersColumns[0]},
-				OnDelete:   schema.SetNull,
-			},
-		},
 	}
 	// UsersColumns holds the columns for the "users" table.
 	UsersColumns = []*schema.Column{
@@ -46,13 +37,40 @@ var (
 		Columns:    UsersColumns,
 		PrimaryKey: []*schema.Column{UsersColumns[0]},
 	}
+	// OrganisationUsersColumns holds the columns for the "organisation_users" table.
+	OrganisationUsersColumns = []*schema.Column{
+		{Name: "organisation_id", Type: field.TypeInt},
+		{Name: "user_id", Type: field.TypeInt},
+	}
+	// OrganisationUsersTable holds the schema information for the "organisation_users" table.
+	OrganisationUsersTable = &schema.Table{
+		Name:       "organisation_users",
+		Columns:    OrganisationUsersColumns,
+		PrimaryKey: []*schema.Column{OrganisationUsersColumns[0], OrganisationUsersColumns[1]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "organisation_users_organisation_id",
+				Columns:    []*schema.Column{OrganisationUsersColumns[0]},
+				RefColumns: []*schema.Column{OrganisationsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "organisation_users_user_id",
+				Columns:    []*schema.Column{OrganisationUsersColumns[1]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		OrganisationsTable,
 		UsersTable,
+		OrganisationUsersTable,
 	}
 )
 
 func init() {
-	OrganisationsTable.ForeignKeys[0].RefTable = UsersTable
+	OrganisationUsersTable.ForeignKeys[0].RefTable = OrganisationsTable
+	OrganisationUsersTable.ForeignKeys[1].RefTable = UsersTable
 }

@@ -29,13 +29,11 @@ const (
 	EdgeOrganisations = "organisations"
 	// Table holds the table name of the user in the database.
 	Table = "users"
-	// OrganisationsTable is the table that holds the organisations relation/edge.
-	OrganisationsTable = "organisations"
+	// OrganisationsTable is the table that holds the organisations relation/edge. The primary key declared below.
+	OrganisationsTable = "organisation_users"
 	// OrganisationsInverseTable is the table name for the Organisation entity.
 	// It exists in this package in order to avoid circular dependency with the "organisation" package.
 	OrganisationsInverseTable = "organisations"
-	// OrganisationsColumn is the table column denoting the organisations relation/edge.
-	OrganisationsColumn = "user_organisations"
 )
 
 // Columns holds all SQL columns for user fields.
@@ -48,6 +46,12 @@ var Columns = []string{
 	FieldPassword,
 	FieldPhone,
 }
+
+var (
+	// OrganisationsPrimaryKey and OrganisationsColumn2 are the table columns denoting the
+	// primary key for the organisations relation (M2M).
+	OrganisationsPrimaryKey = []string{"organisation_id", "user_id"}
+)
 
 // ValidColumn reports if the column name is valid (part of the table columns).
 func ValidColumn(column string) bool {
@@ -127,6 +131,6 @@ func newOrganisationsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(OrganisationsInverseTable, FieldID),
-		sqlgraph.Edge(sqlgraph.O2M, false, OrganisationsTable, OrganisationsColumn),
+		sqlgraph.Edge(sqlgraph.M2M, true, OrganisationsTable, OrganisationsPrimaryKey...),
 	)
 }

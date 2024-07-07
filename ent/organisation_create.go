@@ -55,23 +55,19 @@ func (oc *OrganisationCreate) SetNillableDescription(s *string) *OrganisationCre
 	return oc
 }
 
-// SetUsersID sets the "users" edge to the User entity by ID.
-func (oc *OrganisationCreate) SetUsersID(id int) *OrganisationCreate {
-	oc.mutation.SetUsersID(id)
+// AddUserIDs adds the "users" edge to the User entity by IDs.
+func (oc *OrganisationCreate) AddUserIDs(ids ...int) *OrganisationCreate {
+	oc.mutation.AddUserIDs(ids...)
 	return oc
 }
 
-// SetNillableUsersID sets the "users" edge to the User entity by ID if the given value is not nil.
-func (oc *OrganisationCreate) SetNillableUsersID(id *int) *OrganisationCreate {
-	if id != nil {
-		oc = oc.SetUsersID(*id)
+// AddUsers adds the "users" edges to the User entity.
+func (oc *OrganisationCreate) AddUsers(u ...*User) *OrganisationCreate {
+	ids := make([]int, len(u))
+	for i := range u {
+		ids[i] = u[i].ID
 	}
-	return oc
-}
-
-// SetUsers sets the "users" edge to the User entity.
-func (oc *OrganisationCreate) SetUsers(u *User) *OrganisationCreate {
-	return oc.SetUsersID(u.ID)
+	return oc.AddUserIDs(ids...)
 }
 
 // Mutation returns the OrganisationMutation object of the builder.
@@ -168,10 +164,10 @@ func (oc *OrganisationCreate) createSpec() (*Organisation, *sqlgraph.CreateSpec)
 	}
 	if nodes := oc.mutation.UsersIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.M2O,
-			Inverse: true,
+			Rel:     sqlgraph.M2M,
+			Inverse: false,
 			Table:   organisation.UsersTable,
-			Columns: []string{organisation.UsersColumn},
+			Columns: organisation.UsersPrimaryKey,
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(user.FieldID, field.TypeInt),
@@ -180,7 +176,6 @@ func (oc *OrganisationCreate) createSpec() (*Organisation, *sqlgraph.CreateSpec)
 		for _, k := range nodes {
 			edge.Target.Nodes = append(edge.Target.Nodes, k)
 		}
-		_node.user_organisations = &nodes[0]
 		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
