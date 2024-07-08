@@ -18,7 +18,7 @@ type FieldErr struct {
 	Message string `json:"message"`
 }
 
-func (r registerReq) validate() ([]byte, error) {
+func (r RegisterReq) validate() ([]byte, error) {
 	err := validation.ValidateStruct(&r,
 		validation.Field(&r.Firstname, validation.Required, validation.Length(3, 30)),
 		validation.Field(&r.Lastname, validation.Required, validation.Length(3, 30)),
@@ -81,16 +81,16 @@ func (r loginReq) validate() ([]byte, error) {
 }
 
 func (h *Handlers) UserRegister(ctx *fiber.Ctx) error {
-	var request registerReq
+	var request RegisterReq
 
 	if err := ctx.BodyParser(&request); err != nil {
-		if err = ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
+		_ = ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
 			"status":     "Bad request",
 			"message":    "Registration unsuccessful",
 			"statusCode": 400,
-		}); err != nil {
-			ctx.Status(http.StatusInternalServerError)
-		}
+		})
+
+		return nil
 	}
 
 	// validate users input and return json in expected format
@@ -107,6 +107,8 @@ func (h *Handlers) UserRegister(ctx *fiber.Ctx) error {
 			"message":    "Registration unsuccessful",
 			"statusCode": 422,
 		})
+
+		return nil
 	}
 
 	hashpassword, err := utils.HashPassword(request.Password)
@@ -130,7 +132,7 @@ func (h *Handlers) UserRegister(ctx *fiber.Ctx) error {
 			"message":    "Registration unsuccessful",
 			"statusCode": 422,
 		})
-		utils.Errorf("Fail to create user: ", err)
+		// utils.Errorf("Fail to create user: ", err)
 		return nil
 	}
 
@@ -249,6 +251,8 @@ func (h *Handlers) UserLogin(ctx *fiber.Ctx) error {
 			"message":    "Authentication failed",
 			"statusCode": 401,
 		})
+
+		return nil
 	}
 
 	token, err := middleware.ClaimToken(u.Userid)

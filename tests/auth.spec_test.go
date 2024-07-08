@@ -1,21 +1,28 @@
 package test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
-	"github.com/valyala/fasthttp"
 
 	"github.com/cyberguru1/stage-two/config"
 	"github.com/cyberguru1/stage-two/ent"
 	"github.com/cyberguru1/stage-two/ent/migrate"
+	"github.com/cyberguru1/stage-two/ent/user"
 	"github.com/cyberguru1/stage-two/handlers"
+	"github.com/cyberguru1/stage-two/middleware"
+	"github.com/cyberguru1/stage-two/routes"
 )
 
 // let's mock handlers
@@ -25,127 +32,270 @@ type MockConfig struct {
 	mock.Mock
 }
 
+var Handle *handlers.Handlers
 
 func TestHandlers_UserRegister(t *testing.T) {
-	type fields struct {
-		Client *ent.Client
-		Config *config.Config
-	}
-	type args struct {
-		ctx *fiber.Ctx
-	}
+
+	app := SetupTestApp()
+
+	type args map[string]interface{}
+
+	tokenRes := ""
+
 	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantErr bool
+		name         string
+		args         args
+		wantErr      bool
+		expectedCode int
 	}{
 		{
 			name: "Successful Registration",
-			fields: fields{
-				Client: setupTestClient(t),
-				Config: &config.Config{},
-			},
 			args: args{
-				ctx: setupTestContext("POST", "/auth/register", map[string]string{
-					"firstName": "John",
-					"lastName":  "Doe",
-					"email":     "john.doe@example.com",
-					"password":  "password123",
-					"phone":     "1234567890",
-				}),
+				"method": "POST",
+				"route":  "/auth/register",
+				"body": handlers.RegisterReq{
+					Firstname: "John",
+					Lastname:  "Doe",
+					Email:     "john.doe@example.com",
+					Password:  "password123",
+					Phone:     "1234567890",
+				},
 			},
-			wantErr: false,
+			wantErr:      false,
+			expectedCode: 201,
+		},
+		{
+			name: "Default Organisation",
+			args: args{
+				"method": "GET",
+				"route":  "/api/organisations",
+			},
+			wantErr:      false,
+			expectedCode: 200,
 		},
 		{
 			name: "Missing Required Fields",
-			fields: fields{
-				Client: setupTestClient(t),
-				Config: &config.Config{},
-			},
 			args: args{
-				ctx: setupTestContext("POST", "/auth/register", map[string]string{
-					"firstName": "John",
-					"lastName":  "Doe",
-					"email":     "",
-					"password":  "password123",
-					"phone":     "1234567890",
-				}),
+				"method": "POST",
+				"route":  "/auth/register",
+				"body": handlers.RegisterReq{
+					Firstname: "John",
+					Lastname:  "Doe",
+					Email:     "",
+					Password:  "password123",
+					Phone:     "1234567890",
+				},
 			},
-			wantErr: true,
+			wantErr:      true,
+			expectedCode: 422,
 		},
 		{
 			name: "Duplicate Email",
-			fields: fields{
-				Client: setupTestClientWithExistingUser(t),
-				Config: &config.Config{},
-			},
 			args: args{
-				ctx: setupTestContext("POST", "/auth/register", map[string]string{
-					"firstName": "John",
-					"lastName":  "Doe",
-					"email":     "john.doe@example.com",
-					"password":  "password123",
-					"phone":     "1234567890",
-				}),
+				"method": "POST",
+				"route":  "/auth/register",
+				"body": handlers.RegisterReq{
+					Firstname: "John",
+					Lastname:  "Doe",
+					Email:     "john.doe@example.com",
+					Password:  "password123",
+					Phone:     "1234567890",
+				},
 			},
-			wantErr: true,
+			wantErr:      true,
+			expectedCode: 422,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := handlers.NewHandlers(tt.fields.Client, tt.fields.Config)
-			if err := h.UserRegister(tt.args.ctx); (err != nil) != tt.wantErr {
-				t.Errorf("Handlers.UserRegister() error = %v, wantErr %v", err, tt.wantErr)
+	// Iterate through test single test cases
+	for _, test := range tests {
+		// Create a new http request with the route from the test case
+		method := test.args["method"].(string)
+		var req *http.Request
+
+		if method == "POST" {
+			reqBodyBytes, err := json.Marshal(test.args["body"])
+
+			if err != nil {
+				t.Fatalf("Failed to marshal request body: %v", err)
 			}
-		})
+
+			req = httptest.NewRequest(method, test.args["route"].(string), bytes.NewBuffer(reqBodyBytes))
+			req.Header.Set("Content-Type", "application/json")
+
+		} else {
+			req = httptest.NewRequest(method, test.args["route"].(string), nil)
+			req.Header.Set("Authorization", "Bearer "+tokenRes)
+
+		}
+
+		resp, _ := app.Test(req, -1)
+
+		var response map[string]interface{}
+
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			fmt.Println(err)
+		}
+
+		if data, ok := response["data"].(map[string]interface{}); ok {
+			if _, ok = data["accessToken"].(string); ok {
+				tokenRes = data["accessToken"].(string)
+			}
+		}
+		// Verify, if the status code is as expected
+		assert.Equalf(t, test.expectedCode, resp.StatusCode, test.name)
+		resp.Body.Close()
 	}
+
 }
 
 func TestHandlers_UserLogin(t *testing.T) {
-	type fields struct {
-		Client *ent.Client
-		Config *config.Config
-	}
-	type args struct {
-		ctx *fiber.Ctx
-	}
+	app := SetupTestApp()
+
+	type args map[string]interface{}
+
 	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		wantErr bool
+		name         string
+		args         args
+		wantErr      bool
+		expectedCode int
+		expectedMsg  string
 	}{
-		// TODO: Add test cases.
+		{
+			name: "Successful Login",
+			args: args{
+				"method": "POST",
+				"route":  "/auth/login",
+				"body": map[string]string{
+					"email":    "john.doe@example.com",
+					"password": "password123",
+				},
+			},
+			wantErr:      false,
+			expectedCode: 200,
+		},
+		{
+			name: "Invalid Credentials",
+			args: args{
+				"method": "POST",
+				"route":  "/auth/login",
+				"body": map[string]string{
+					"email":    "john.doe@example.com",
+					"password": "wrongpassword",
+				},
+			},
+			wantErr:      true,
+			expectedCode: 401,
+		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			h := handlers.NewHandlers(tt.fields.Client, tt.fields.Config)
-			if err := h.UserLogin(tt.args.ctx); (err != nil) != tt.wantErr {
-				t.Errorf("Handlers.UserLogin() error = %v, wantErr %v", err, tt.wantErr)
+
+	for _, test := range tests {
+		method := test.args["method"].(string)
+		var req *http.Request
+
+		tokenRes := ""
+
+		if method == "POST" {
+			reqBodyBytes, err := json.Marshal(test.args["body"])
+			if err != nil {
+				t.Fatalf("Failed to marshal request body: %v", err)
 			}
-		})
+
+			req = httptest.NewRequest(method, test.args["route"].(string), bytes.NewBuffer(reqBodyBytes))
+			req.Header.Set("Content-Type", "application/json")
+		} else {
+			req = httptest.NewRequest(method, test.args["route"].(string), nil)
+		}
+
+		resp, _ := app.Test(req, -1)
+
+		var response map[string]interface{}
+		if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+			fmt.Println(err)
+		}
+
+		if data, ok := response["data"].(map[string]interface{}); ok {
+			if _, ok = data["accessToken"].(string); ok {
+				tokenRes = data["accessToken"].(string)
+				if tokenRes == "" {
+					assert.Fail(t, test.name)
+				}
+			}
+		}
+
+		assert.Equalf(t, test.expectedCode, resp.StatusCode, test.name)
+		resp.Body.Close()
+
 	}
 }
 
-func setupTestClient(t *testing.T) *ent.Client {
+func TestHandle_Lastdelete(t *testing.T) {
 
-	// Setup a postgres connection
-	conf := config.New()
+	email := "john.doe@example.com"
+	deleteUser(email) // delete's the default creted user
+}
 
-	client, err := ent.Open("postgres",
-		fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=disable",
-			conf.Database.Host,
-			conf.Database.Port,
-			conf.Database.User,
-			conf.Database.Name,
-			conf.Database.Password,
-		))
+func deleteUser(email string) {
+
+	err := godotenv.Load("../.env")
 
 	if err != nil {
-		// utils.Fatalf("Database connection failed : ", err)
-		fmt.Println(err)
+		log.Print("Error loading .env file")
+	}
+
+	// Setup a postgres connection
+
+	conf := config.New()
+
+	client, err := ent.Open("postgres", fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=disable", conf.Database.Host, conf.Database.Port, conf.Database.User, conf.Database.Name, conf.Database.Password))
+
+	if err != nil {
+		fmt.Println("Database connection failed : ", err)
+	}
+
+	ctx := context.Background()
+
+	defer client.Close()
+
+	// Run the auto migration tool to create the schema for the User entity.
+	if err := client.Schema.Create(ctx); err != nil {
+		log.Fatalf("failed creating schema resources: %v", err)
+	}
+
+	// Find the user by email
+	u, err := client.User.Query().WithOrganisations().Where(user.Email(email)).Only(ctx)
+	if err != nil {
+		fmt.Println("failed to find user: ", err)
+	}
+
+	if err := client.Organisation.DeleteOne(u.Edges.Organisations[0]).Exec(ctx); err != nil {
+		fmt.Errorf("failed to delete organization: %w", err)
+	}
+
+	// Delete the user
+	if err := client.User.DeleteOne(u).Exec(ctx); err != nil {
+
+		fmt.Errorf("failed to delete user: %w", err)
+	}
+
+}
+func SetupTestApp() *fiber.App {
+	// load .env file from given path
+
+	err := godotenv.Load("../.env")
+
+	if err != nil {
+		log.Print("Error loading .env file")
+	}
+
+	// Setup a postgres connection
+
+	conf := config.New()
+
+	client, err := ent.Open("postgres", fmt.Sprintf("host=%s port=%s user=%s dbname=%s password=%s sslmode=disable", conf.Database.Host, conf.Database.Port, conf.Database.User, conf.Database.Name, conf.Database.Password))
+
+	if err != nil {
+		fmt.Println("Database connection failed : ", err)
 	}
 
 	ctx := context.Background()
@@ -156,40 +306,20 @@ func setupTestClient(t *testing.T) *ent.Client {
 		migrate.WithDropColumn(true),
 	)
 
-	return client
-}
-
-func setupTestClientWithExistingUser(t *testing.T) *ent.Client {
-	client := setupTestClient(t)
-	ctx := context.Background()
-	_, err := client.User.Create().
-		SetEmail("john.doe@example.com").
-		SetFirstName("John").
-		SetLastName("Doe").
-		SetPassword("password123").
-		SetPhone("1234567890").
-		Save(ctx)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Println("Migration Fail: ", err)
 	}
-	require.NoError(t, err)
-	return client
-}
 
-func setupTestContext(method, path string, body map[string]string) *fiber.Ctx {
+	// Create a server using fiber
 	app := fiber.New()
-	jsonBody, _ := json.Marshal(body)
-	req := fasthttp.AcquireRequest()
-	req.SetRequestURI(path)
-	req.Header.SetMethod(method)
-	req.Header.SetContentType("application/json")
-	req.SetBody(jsonBody)
-	resp := fasthttp.AcquireResponse()
+	middleware.SetMiddleware(app) //setup middleware
 
-	ctx := app.AcquireCtx(&fasthttp.RequestCtx{
-		Request:  *req,
-		Response: *resp,
-	})
+	defer app.Shutdown()
 
-	return ctx
+	// create a new handler
+	Handle = handlers.NewHandlers(client, conf)
+
+	routes.SetupApiV1(app, Handle)
+
+	return app
 }

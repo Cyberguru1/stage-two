@@ -156,6 +156,8 @@
      - Registration failure for missing required fields.
      - Registration failure for duplicate email or userId.
 
+        ![1720472521620.png](./1720472521620.png)
+
    **Unit Testing**
 
    Write appropriate unit tests to cover

@@ -26,6 +26,7 @@ import (
 	"github.com/cyberguru1/stage-two/utils"
 )
 
+var App *fiber.App
 
 func getInfo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
