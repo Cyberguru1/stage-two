@@ -260,6 +260,7 @@ func (h *Handlers) OrgRegister(ctx *fiber.Ctx) error {
 	data := map[string]interface{}{
 		"name":        org.Name,
 		"description": org.Description,
+		"orgId":       org.Orgid,
 	}
 
 	_ = ctx.Status(http.StatusCreated).JSON(fiber.Map{

@@ -1,4 +1,4 @@
-package main
+package test
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/valyala/fasthttp"
 
@@ -16,6 +17,14 @@ import (
 	"github.com/cyberguru1/stage-two/ent/migrate"
 	"github.com/cyberguru1/stage-two/handlers"
 )
+
+// let's mock handlers
+
+// MockConfig is a mock of the config struct
+type MockConfig struct {
+	mock.Mock
+}
+
 
 func TestHandlers_UserRegister(t *testing.T) {
 	type fields struct {
