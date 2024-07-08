@@ -14,7 +14,7 @@ func SetupOrgRoutes(group fiber.Router, handlers *handlers.Handlers) {
 	useRoute.Get("/",middleware.IsAuthorize(conf), handlers.GetOrgs)
 	useRoute.Get("/:orgId",middleware.IsAuthorize(conf), handlers.GetOrg)
 	useRoute.Post("/", middleware.IsAuthorize(conf), handlers.OrgRegister)
-	useRoute.Post("/:orgId/users", handlers.UserOrgRegister)
+	useRoute.Post("/:orgId/users",middleware.IsAuthorize(conf), handlers.UserOrgRegister)
 
 
 }
